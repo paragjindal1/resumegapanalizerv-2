@@ -70,7 +70,10 @@ analyze_clicked = st.button("Analyze Gap", type="primary")
 
 # ================== STEP 5: HELPERS ==================
 
-model = ChatGoogleGenerativeAI(
+model = ""
+
+if GOOGLE_API_KEY :
+    model = ChatGoogleGenerativeAI(
         model="gemini-3.5-flash",
         temperature=0.3
     )
@@ -100,47 +103,67 @@ def save_uploaded_file(file):
         f.write(file.getbuffer())
     return file_path
 
+def extract_agent_text(response):
+    """Safely pulls the final text block out of an agent response,
+    since the last content block isn't always plain text (e.g. tool calls)."""
+    content = response['messages'][-1].content
+    if isinstance(content, str):
+        return content
+    for block in reversed(content):
+        if isinstance(block, dict) and block.get('type') == 'text':
+            return block['text']
+    raise ValueError("No text content found in agent response")
+
 def main_agent(agent,query):
     """this is the main agent or main agent orchestrate sub agents"""
-    # Giving promt to create detailed prompt for code generation
 
-    prompt = """You are Ai assistent and
-    below given is a prompt , your
-    rask is to give detailed prompt for this.
-    you are a proffessional Resume Generator where user
-    will give their personal info ,
-    you have to create detail Resume for student or professional one,
-    it must be with dynamic ui and ux and, with advance CSS profestional Desiging make sure
-    to give output in html format only
-    no markdown allowed"""
+    prompt = f"""You are a professional resume writer and front-end developer.
+
+Using the candidate's resume details and skill-gap analysis below, generate a complete,
+single-file HTML resume page.
+
+Requirements:
+- Output ONLY raw HTML (starting with <!DOCTYPE html> or <html>). No markdown, no code fences, no commentary.
+- Include inline <style> CSS for a modern, professional, ATS-friendly design.
+- Use only real experience, skills, and education found in the details below - never invent
+  job titles, employers, dates, or accomplishments that weren't provided.
+- No placeholder text like "Lorem ipsum" or "[Your Name]" - use the candidate's actual details.
+
+CANDIDATE DETAILS AND SKILL GAP ANALYSIS:
+{query}
+"""
 
     response = agent.invoke({'messages':[{'role':'user','content':prompt}]})
 
-    detail_prompt = response['messages'][-1].content[-1]['text']
-
-    with open('prompt.txt','w') as f:
-      f.write(detail_prompt)
-
-    user_details = query
-
-    final_prompt = prompt + detail_prompt + json.dumps(user_details)
-
-    response = agent.invoke({'messages':[{'role':'user','content':final_prompt}]})
-
-    code = response['messages'][-1].content[-1]['text']
+    code = extract_agent_text(response)
 
     return code
 
 def get_jobs(agent,Location = "Noida,Delhi",Profile = "DATA ANALYSIS,AI ENGINEER"):
-  prompt = f"""Based on user given Job profile,
-  fetch latest jobs or jobs apply article using naukri , linkindin,indeed, or all popular job apply platforms , show Results with JOB PROFILE NAME,
-  LACATION,SALARY,COMAPNY NAME, SHOW jobs related to given {Location} and {Profile}, Out put must be in
-  Professinal HTML , naukri theme cards with dynamic DEsign,
-  show atleast top 10-20 results with direct apply link"""
+  prompt = f"""You are a job search assistant with access to a web search tool.
+
+Search for current, real job listings matching:
+- Profile: {Profile}
+- Location: {Location}
+
+Use the search tool to find actual postings. Do not invent job listings, company names,
+salaries, or links under any circumstances - if you're not certain a detail came from a
+search result, leave it out rather than guessing.
+
+Output ONLY raw HTML (no markdown, no commentary) with up to 10 job cards. Each card must include:
+- Job title
+- Company name
+- Location
+- Salary (only if explicitly stated in a source; omit the field otherwise)
+- An "Apply" link using the EXACT URL returned by the search tool
+
+Style as clean, professional cards with inline CSS (no external stylesheets).
+If fewer than 10 real listings are found, show only what you found - never pad the list.
+"""
 
   response = agent.invoke({'messages':[{'role':'user','content':prompt}]})
 
-  code = response['messages'][-1].content[-1]['text']
+  code = extract_agent_text(response)
 
   return code
 
@@ -263,13 +286,10 @@ if analyze_clicked:
                 st.text(resume_text)
 
             with st.spinner("Agent Running"):
-                code = main_agent(agent,result)
+                code = main_agent(agent,json.dumps(result)+resume_text)
                 st.html(code , width="stretch" ,
                 unsafe_allow_javascript=True)
                 st.divider()  # to give horizontal div
                 job_code = get_jobs(agent,"india",target_job)
                 st.html(job_code , width="stretch" ,
                 unsafe_allow_javascript=True)
-
-
-
